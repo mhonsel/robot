@@ -1,0 +1,106 @@
+import cv2
+from adafruit_servokit import ServoKit
+
+# local imports
+from controllers.pan_tilt_controller import PanTiltController
+from controllers.drive_test_controller import DriveTestController
+from hardware.pan_tilt import PanTilt
+from hardware.motor import Motor
+from hardware.drive import FourWheelDiffDrive
+import vision.detect as detect
+
+
+CAMERA_ID = 0
+CAPTURE_WIDTH = 640
+CAPTURE_HEIGHT = 480
+
+LB_MOTOR_PINS = (17, 27, 22) # (en, in1, in2)
+RB_MOTOR_PINS = (11, 9, 10)
+LF_MOTOR_PINS = (23, 24, 25)
+RF_MOTOR_PINS = (12, 7, 8)
+
+WHEEL_RADIUS = 0.033
+WHEEL_TRACK = 0.136
+
+class Robot:
+    def __init__(self):
+        # hardware setup
+        # dimensions
+        self.wheel_radius = WHEEL_RADIUS
+        self.wheel_track = WHEEL_TRACK
+
+        # motors and drive setup
+        self.lb_motor = Motor(LB_MOTOR_PINS)
+        self.rb_motor = Motor(RB_MOTOR_PINS)
+        self.lf_motor = Motor(LF_MOTOR_PINS)
+        self.rf_motor = Motor(RF_MOTOR_PINS)
+        self.drive = FourWheelDiffDrive(self)
+
+        # servos and pan tilt setups
+        self.servo_kit = ServoKit(channels=16, frequency=50)
+        self.pan_tilt = PanTilt(self)
+
+        # set up image capture
+        self.camera_id = CAMERA_ID
+        self.cap = cv2.VideoCapture(self.camera_id)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_HEIGHT)
+        self._update_vision()
+
+        # controllers
+        self.face_pan_tilt_controller = PanTiltController(self, model='data/models/ssd_mobilenet_v2_face_quant_postprocess_edgetpu.tflite')
+        self.drive_test_controller = DriveTestController(self)
+
+        # state machine
+#        self.state = RobotState(self)
+
+        # target state
+        self.pan = 0.0
+        self.tilt = 0.0
+        self.v = 0.0
+        self.omega = 0.0
+        self.current_controller = self.drive_test_controller
+
+    def detect(self, detect_type, video_out=True):
+        model = None
+        if detect_type == 'object':
+            model = 'data/models/efficientdet_lite0_edgetpu.tflite'
+
+        detect.run(self, model, frameWidth=640, frameHeight=480,
+            numThreads=4, enableEdgeTPU=True)
+
+    def execute(self):
+        while True:
+            self._update_state()  # update state
+            self.current_controller.update()  # apply the current controller
+            self._send_robot_commands()  # output the generated control signals to the robot
+
+            if cv2.waitKey(1) == 27:
+                break
+
+    # update robot and control state
+    def _update_state(self):
+        # update vision 
+        self._update_vision()
+
+        # calculate new controller outputs
+#       self._update_controllers()
+
+        # update the control state
+#       self.state.update()
+
+    def _update_vision(self):
+        if self.cap.isOpened():
+            self.has_vision, self.frame = self.cap.read()
+            if self.has_vision:
+                self.frame = cv2.flip(self.frame, 0)
+        else:
+            self.has_vision = False
+
+    def _send_robot_commands(self):
+        self.pan_tilt.update()
+        self.drive.update()
+
+        # show image
+        if self.has_vision:
+            cv2.imshow('robot_vision', self.frame)
