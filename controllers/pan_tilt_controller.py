@@ -1,70 +1,84 @@
 import cv2
+from aiymakerkit import vision, utils
 
-from aiymakerkit import vision
-from aiymakerkit import utils
-
-# local imports
+# Local imports
 import data.models as models
 from controllers.pid import PID
 
+
 class PanTiltController:
-    def __init__(self, supervisor):
+    """
+    A controller for adjusting the robot's pan-tilt mechanism to track objects.
+
+    Uses a vision-based detector and PID controllers to align the robot's camera
+    with a target object in the frame.
+    """
+
+    def __init__(self, supervisor) -> None:
+        """
+        Initializes the PanTiltController.
+
+        Args:
+            supervisor: The Supervisor instance managing the robot's state.
+        """
         self.supervisor = supervisor
-        self.name = 'Pan Tilt'
+        self.name: str = "Pan Tilt"
 
-        
         if self.supervisor.has_vision:
-            # calculate the center of the frame as this is where we will
-            # try to keep the object
+            # Calculate the center of the frame (target tracking position)
             (H, W) = self.supervisor.image.shape[:2]
-            self.center_x = W // 2
-            self.center_y = H // 2
+            self.center_x: int = W // 2  # Center X-coordinate of the frame
+            self.center_y: int = H // 2  # Center Y-coordinate of the frame
 
-            # initialize detector
-            if self.supervisor.target_object == 'face':
+            # Initialize object detection model based on target type
+            if self.supervisor.target_object == "face":
                 self.detector = vision.Detector(models.FACE_DETECTION_MODEL)
                 self.labels = None
-                self.threshold = 0.1
+                self.threshold: float = 0.1  # Lower threshold for face detection
             else:
                 self.detector = vision.Detector(models.OBJECT_DETECTION_MODEL)
                 self.labels = utils.read_labels_from_metadata(models.OBJECT_DETECTION_MODEL)
-                self.threshold = 0.4
+                self.threshold: float = 0.4  # Higher threshold for object detection
 
-            # create the pan/tilt PIDs and initialize them
+            # Initialize PID controllers for pan and tilt adjustments
             self.pan_pid = PID(kP=0.035, kI=0.0004, kD=0.0001)
             self.pan_pid.initialize(offset=self.supervisor.pan)
+
             self.tilt_pid = PID(kP=0.06, kI=0.0006, kD=0.0002)
             self.tilt_pid.initialize(offset=self.supervisor.tilt)
 
-    def update(self):
-        # only run when there's an image from the camera
+    def update(self) -> None:
+        """
+        Updates the pan-tilt servos based on object detection.
+
+        If an object is detected, the servos adjust to align the camera
+        with the target's position in the frame.
+        """
         if self.supervisor.has_vision:
-            # run detector
+            # Run object detection on the current camera frame
             objects = self.detector.get_objects(self.supervisor.image, threshold=self.threshold)
 
-            # only objects matching the target object
-            if not self.supervisor.target_object == 'face':
+            # Filter detected objects to match the target object (if not detecting faces)
+            if self.supervisor.target_object != "face":
                 objects = [o for o in objects if self.labels.get(o.id) == self.supervisor.target_object]
 
             if objects:
-                # draw bounding boxes and labels
+                # Draw bounding boxes and labels on the image
                 vision.draw_objects(self.supervisor.image, objects, self.labels)
 
-                # extract the bounding box coordinates of the object and
-                # use the coordinates to determine the center
-                (x_min, y_min, x_max, y_max) = objects[0].bbox 
-                obj_x = int((x_min + x_max) / 2.0)
-                obj_y = int((y_min + y_max) / 2.0)
+                # Extract bounding box coordinates of the first detected object
+                (x_min, y_min, x_max, y_max) = objects[0].bbox
+                obj_x: int = int((x_min + x_max) / 2.0)  # Compute object's center X-coordinate
+                obj_y: int = int((y_min + y_max) / 2.0)  # Compute object's center Y-coordinate
 
-                # update the pid controllers
-                pan_error = self.center_x - obj_x 
-                self.supervisor.pan = self.pan_pid.update(pan_error)
-                tilt_error = self.center_y - obj_y 
-#                print('Tilt Error: {}'.format(tilt_error))
-                self.supervisor.tilt = self.tilt_pid.update(tilt_error)
-#                print('Tilt: {}'.format(self.supervisor.tilt))
+                # Compute tracking errors and update PID controllers
+                pan_error: int = self.center_x - obj_x  # Horizontal offset from center
+                self.supervisor.pan = self.pan_pid.update(pan_error)  # Adjust pan angle
 
-            # otherwise no objects were found
+                tilt_error: int = self.center_y - obj_y  # Vertical offset from center
+                self.supervisor.tilt = self.tilt_pid.update(tilt_error)  # Adjust tilt angle
+
             else:
+                # If no objects were detected, reset pan and tilt adjustments
                 self.supervisor.pan = self.pan_pid.update(0)
                 self.supervisor.tilt = self.tilt_pid.update(0)

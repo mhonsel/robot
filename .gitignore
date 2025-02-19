@@ -1,0 +1,5 @@
+/cam.del/
+/bak/
+*.del
+*.bak
+*.broken

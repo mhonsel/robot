@@ -1,35 +1,52 @@
 import utils.drive
 
+
 class FourWheelDiffDrive:
-    def __init__(self, robot):
-        # robot
+    """
+    Implements a four-wheel differential drive system for the robot.
+    Converts desired translational and rotational velocities into wheel speeds.
+    """
+
+    def __init__(self, robot) -> None:
+        """
+        Initializes the differential drive system.
+
+        Args:
+            robot: The robot instance containing motor control and kinematic parameters.
+        """
+        # Reference to the robot instance
         self.robot = robot
-        self.R = self.robot.wheel_radius
-        self.T = self.robot.wheel_track
 
-        # defaults
-        self.lf_motor_r = 0.0
-        self.rf_motor_r = 0.0
-        self.lb_motor_r = 0.0
-        self.rb_motor_r = 0.0
+        # Wheel and track parameters
+        self.R: float = self.robot.wheel_radius  # Wheel radius (m)
+        self.T: float = self.robot.wheel_track  # Distance between wheels (m)
 
-    def update(self):
-        v = self.robot.v
-        omega = self.robot.omega
+        # Motor speed defaults (rad/s)
+        self.lf_motor_r: float = 0.0  # Left front wheel speed
+        self.rf_motor_r: float = 0.0  # Right front wheel speed
+        self.lb_motor_r: float = 0.0  # Left back wheel speed
+        self.rb_motor_r: float = 0.0  # Right back wheel speed
 
+    def update(self) -> None:
+        """
+        Updates the motor speeds based on the robot's desired velocity and angular velocity.
+        """
+        # Retrieve desired translational and angular velocity from the robot
+        v: float = self.robot.v  # Translational velocity (m/s)
+        omega: float = self.robot.omega  # Angular velocity (rad/s)
+
+        # Convert unicycle model velocities to differential drive velocities
         v_l, v_r = utils.drive.uni_to_diff(v, omega, self.R, self.T)
 
-#        print(v)
+        # Scaling factor to convert from computed velocity to motor input speed
+        SCALING_FACTOR: float = 4.43 * 2  # Empirical factor for motor speed calibration
 
-        # Temporary to calibrate values to m/s 
-#        r_l = v_l * 4.43
-#        r_r = v_r * 4.43
-        r_l = v_l * 4.43 * 2
-        r_r = v_r * 4.43 * 2
+        # Compute motor speeds
+        r_l: float = v_l * SCALING_FACTOR  # Left wheel speed (scaled)
+        r_r: float = v_r * SCALING_FACTOR  # Right wheel speed (scaled)
 
-#        print("Left rate: %f, right rate: %f" % (r_l, r_r))
-
-        self.robot.lf_motor.run(r_l)
-        self.robot.rf_motor.run(r_r)
-        self.robot.lb_motor.run(r_l)
-        self.robot.rb_motor.run(r_r)
+        # Apply computed speeds to all four motors
+        self.robot.lf_motor.run(r_l)  # Left front motor
+        self.robot.rf_motor.run(r_r)  # Right front motor
+        self.robot.lb_motor.run(r_l)  # Left back motor
+        self.robot.rb_motor.run(r_r)  # Right back motor
